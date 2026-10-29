@@ -18,6 +18,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 #list{padding:14px;display:grid;gap:10px}
 .item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;gap:12px;align-items:center;text-align:left;width:100%}
 .item b{display:block;font-size:16px}.item small{color:var(--sub)}
+.item{cursor:pointer}.side{display:flex;flex-direction:column;align-items:flex-end;gap:2px}.acts{display:flex}.ic{background:none;border:0;font-size:19px;padding:6px 7px;line-height:1}
 .pg{height:6px;background:var(--line);border-radius:9px;margin-top:8px;overflow:hidden}.pg i{display:block;height:100%;background:var(--pri)}
 .empty{color:var(--sub);text-align:center;padding:50px 20px}
 .foot{display:flex;gap:8px;padding:0 14px 20px}.foot button{flex:1;background:none;border:1px solid var(--line);border-radius:10px;padding:9px;color:var(--sub);font-size:14px}
@@ -66,8 +67,7 @@ dialog p{font-size:13px;color:var(--sub);margin:0 0 10px}
     <button id="bTr">번역</button>
     <button id="bLoop">🔁 구간반복</button>
     <button id="bSpd">속도 1x</button>
-    <button id="bDel">삭제</button>
-  </div>
+    </div>
   <div id="lines"></div>
   <div class="ctl">
     <button id="pv">⏮</button><button id="pp">▶</button><button id="nx">⏭</button><button id="rec" class="rec">🎤 녹음</button>
@@ -76,7 +76,7 @@ dialog p{font-size:13px;color:var(--sub);margin:0 0 10px}
 </section>
 
 <dialog id="dlg">
-  <b>영상 추가</b>
+  <b id="dTitle">영상 추가</b>
   <input id="fUrl" placeholder="YouTube 링크">
   <input id="fTitle" placeholder="제목">
   <textarea id="fTxt" placeholder="스크립트 붙여넣기&#10;0:03 I'm actually gonna finish this | 나 이거 진짜 다 먹을래&#10;0:06 but I'll stop, my last one."></textarea>
@@ -89,6 +89,7 @@ dialog p{font-size:13px;color:var(--sub);margin:0 0 10px}
 const $=s=>document.querySelector(s);
 let D;try{D=JSON.parse(localStorage.getItem('sg')||'')}catch(e){}
 if(!D||!Array.isArray(D.v))D={v:[]};
+if(!Array.isArray(D.hide))D.hide=[];
 const save=()=>{try{localStorage.setItem('sg',JSON.stringify(D))}catch(e){toast('저장 실패')}};
 const today=()=>new Date().toLocaleDateString('sv');
 const toast=m=>{const t=$('#toast');t.textContent=m;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,1600)};
@@ -100,8 +101,10 @@ function renderList(){
   const el=$('#list');
   if(!D.v.length){el.innerHTML='<div class="empty">아직 영상이 없어요.<br>“+ 영상 추가”로 첫 쉐도잉을 시작해 보세요.</div>';return}
   el.innerHTML=D.v.map((v,i)=>{const p=Math.round(100*(v.seen||[]).length/v.L.length);
-    return `<button class="item" data-i="${i}"><div style="flex:1"><b>${esc(v.title)}</b><small>${v.L.length}문장 · ${v.n||0}회 복습${v.shared?' · 공용':''}</small><div class="pg"><i style="width:${p}%"></i></div></div><span class="pill">${ago(v.last)}</span></button>`}).join('');
+    return `<div class="item" data-i="${i}"><div style="flex:1;min-width:0"><b>${esc(v.title)}</b><small>${v.L.length}문장 · ${v.n||0}회 복습${v.shared?' · 공용':''}</small><div class="pg"><i style="width:${p}%"></i></div></div><div class="side"><span class="pill">${ago(v.last)}</span><div class="acts"><button class="ic" data-e="${i}" aria-label="수정">✏️</button><button class="ic" data-d="${i}" aria-label="삭제">🗑️</button></div></div></div>`}).join('');
   el.querySelectorAll('.item').forEach(b=>b.onclick=()=>openVideo(+b.dataset.i));
+  el.querySelectorAll('[data-e]').forEach(b=>b.onclick=e=>{e.stopPropagation();openForm(+b.dataset.e)});
+  el.querySelectorAll('[data-d]').forEach(b=>b.onclick=e=>{e.stopPropagation();delVideo(+b.dataset.d)});
 }
 
 /* ---------- 스크립트 파싱 ---------- */
@@ -119,16 +122,36 @@ function parse(txt){
   }
   return out.sort((a,b)=>a.t-b.t);
 }
-$('#add').onclick=()=>$('#dlg').showModal();
-$('#cancel').onclick=()=>$('#dlg').close();
+let editI=-1;
+function openForm(i){
+  editI=i;const v=D.v[i];
+  $('#dTitle').textContent=v?'영상 수정':'영상 추가';
+  $('#fUrl').value=v?'https://youtu.be/'+v.id:'';
+  $('#fTitle').value=v?v.title:'';
+  $('#fTxt').value=v?v.L.map(l=>fmt(l.t)+' '+l.en+(l.ko?' | '+l.ko:'')).join('\n'):'';
+  $('#dlg').showModal();
+}
+function delVideo(i){
+  const v=D.v[i];if(!v)return;
+  if(!confirm('“'+v.title+'” 을(를) 삭제할까요?'+(v.shared?'\n(이 폰에서만 지워져요. 모두에게서 지우려면 공용 목록을 다시 올려야 해요)':'')))return;
+  if(v.shared&&!D.hide.includes(v.id))D.hide.push(v.id);
+  D.v.splice(i,1);save();renderList();toast('삭제했어요');
+}
+$('#add').onclick=()=>openForm(-1);
+$('#cancel').onclick=()=>{$('#dlg').close();editI=-1};
 $('#save').onclick=()=>{
   const id=($('#fUrl').value.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/)||[])[1];
   const L=parse($('#fTxt').value);
   if(!id)return toast('유튜브 링크를 확인해 주세요');
   if(!L.length)return toast('스크립트에서 문장을 찾지 못했어요');
-  D.v.unshift({id,title:$('#fTitle').value.trim()||'제목 없음',L,n:0,seen:[]});
-  save();renderList();$('#dlg').close();
-  ['#fUrl','#fTitle','#fTxt'].forEach(s=>$(s).value='');
+  const title=$('#fTitle').value.trim()||'제목 없음';
+  if(editI>=0){
+    const v=D.v[editI];
+    if(v.shared&&v.id!==id&&!D.hide.includes(v.id))D.hide.push(v.id);
+    v.id=id;v.title=title;v.L=L;v.seen=(v.seen||[]).filter(k=>k<L.length);v.edited=true;
+  }else D.v.unshift({id,title,L,n:0,seen:[]});
+  D.hide=D.hide.filter(h=>h!==id);
+  save();renderList();$('#dlg').close();editI=-1;
 };
 
 /* ---------- 플레이어 ---------- */
@@ -180,7 +203,6 @@ tg('#bLoop',0,()=>(loop=!loop));
 tg('#bHide',0,()=>{const on=document.body.classList.toggle('hide');if(!on)document.querySelectorAll('.show').forEach(e=>e.classList.remove('show'));return on});
 tg('#bTr',0,()=>document.body.classList.toggle('tr'));
 $('#bSpd').onclick=()=>{spd=SPD[(SPD.indexOf(spd)+1)%SPD.length];if(P)P.setPlaybackRate(spd);$('#bSpd').textContent='속도 '+spd+'x'};
-$('#bDel').onclick=()=>{if(confirm(cur.shared?'이 영상을 삭제할까요?\n(공용 목록에 있으면 다시 열 때 또 나타나요)':'이 영상을 삭제할까요?')){D.v.splice(D.v.indexOf(cur),1);save();$('#back').click()}};
 $('#back').onclick=()=>{clearInterval(tick);if(P&&P.pauseVideo)P.pauseVideo();$('#play').style.display='none';$('#home').style.display='block';renderList()};
 
 /* ---------- 오늘 복습 완료 ---------- */
@@ -216,11 +238,12 @@ async function syncShared(){
     if(!r.ok)return;
     const j=await r.json();if(!j||!Array.isArray(j.v))return;
     let add=0;
-    j.v.forEach(s=>{
-      if(!s.id||!Array.isArray(s.L))return;
-      const m=D.v.find(v=>v.id===s.id);
-      if(m){m.title=s.title;m.L=s.L;m.shared=true}
-      else{D.v.push({id:s.id,title:s.title,L:s.L,n:0,seen:[],shared:true});add++}
+    D.v=D.v.filter(v=>!v.shared||j.v.some(x=>x.id===v.id));
+    j.v.forEach(x=>{
+      if(!x.id||!Array.isArray(x.L)||D.hide.includes(x.id))return;
+      const m=D.v.find(v=>v.id===x.id);
+      if(m){m.shared=true;if(!m.edited){m.title=x.title;m.L=x.L}}
+      else{D.v.push({id:x.id,title:x.title,L:x.L,n:0,seen:[],shared:true});add++}
     });
     save();renderList();if(add)toast('공용 영상 '+add+'개를 가져왔어요');
   }catch(e){}
