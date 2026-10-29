@@ -52,7 +52,7 @@ dialog p{font-size:13px;color:var(--sub);margin:0 0 10px}
 <section id="home">
   <div class="bar"><h1>Shadowing Gym</h1></div>
   <div id="list"></div>
-  <div class="foot"><button id="exp">백업 저장</button><button id="imp">백업 불러오기</button></div>
+  <div class="foot"><button id="exp">백업 저장</button><button id="imp">백업 불러오기</button><button id="pub">공용 목록 저장</button></div>
   <button class="fab" id="add">+ 영상 추가</button>
   <input type="file" id="file" accept=".json" hidden>
 </section>
@@ -100,7 +100,7 @@ function renderList(){
   const el=$('#list');
   if(!D.v.length){el.innerHTML='<div class="empty">아직 영상이 없어요.<br>“+ 영상 추가”로 첫 쉐도잉을 시작해 보세요.</div>';return}
   el.innerHTML=D.v.map((v,i)=>{const p=Math.round(100*(v.seen||[]).length/v.L.length);
-    return `<button class="item" data-i="${i}"><div style="flex:1"><b>${esc(v.title)}</b><small>${v.L.length}문장 · ${v.n||0}회 복습</small><div class="pg"><i style="width:${p}%"></i></div></div><span class="pill">${ago(v.last)}</span></button>`}).join('');
+    return `<button class="item" data-i="${i}"><div style="flex:1"><b>${esc(v.title)}</b><small>${v.L.length}문장 · ${v.n||0}회 복습${v.shared?' · 공용':''}</small><div class="pg"><i style="width:${p}%"></i></div></div><span class="pill">${ago(v.last)}</span></button>`}).join('');
   el.querySelectorAll('.item').forEach(b=>b.onclick=()=>openVideo(+b.dataset.i));
 }
 
@@ -180,7 +180,7 @@ tg('#bLoop',0,()=>(loop=!loop));
 tg('#bHide',0,()=>{const on=document.body.classList.toggle('hide');if(!on)document.querySelectorAll('.show').forEach(e=>e.classList.remove('show'));return on});
 tg('#bTr',0,()=>document.body.classList.toggle('tr'));
 $('#bSpd').onclick=()=>{spd=SPD[(SPD.indexOf(spd)+1)%SPD.length];if(P)P.setPlaybackRate(spd);$('#bSpd').textContent='속도 '+spd+'x'};
-$('#bDel').onclick=()=>{if(confirm('이 영상을 삭제할까요?')){D.v.splice(D.v.indexOf(cur),1);save();$('#back').click()}};
+$('#bDel').onclick=()=>{if(confirm(cur.shared?'이 영상을 삭제할까요?\n(공용 목록에 있으면 다시 열 때 또 나타나요)':'이 영상을 삭제할까요?')){D.v.splice(D.v.indexOf(cur),1);save();$('#back').click()}};
 $('#back').onclick=()=>{clearInterval(tick);if(P&&P.pauseVideo)P.pauseVideo();$('#play').style.display='none';$('#home').style.display='block';renderList()};
 
 /* ---------- 오늘 복습 완료 ---------- */
@@ -208,7 +208,24 @@ $('#exp').onclick=()=>{const a=document.createElement('a');a.href=URL.createObje
 $('#imp').onclick=()=>$('#file').click();
 $('#file').onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());if(Array.isArray(j.v)){D=j;save();renderList();toast('불러왔어요')}}catch(x){toast('파일을 읽지 못했어요')}};
 
-renderList();
+/* ---------- 공용 목록 ---------- */
+$('#pub').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({v:D.v.map(v=>({id:v.id,title:v.title,L:v.L}))})],{type:'application/json'}));a.download='library.json';a.click();toast('library.json을 GitHub에 올려 주세요')};
+async function syncShared(){
+  try{
+    const r=await fetch('library.json?'+Date.now(),{cache:'no-store'});
+    if(!r.ok)return;
+    const j=await r.json();if(!j||!Array.isArray(j.v))return;
+    let add=0;
+    j.v.forEach(s=>{
+      if(!s.id||!Array.isArray(s.L))return;
+      const m=D.v.find(v=>v.id===s.id);
+      if(m){m.title=s.title;m.L=s.L;m.shared=true}
+      else{D.v.push({id:s.id,title:s.title,L:s.L,n:0,seen:[],shared:true});add++}
+    });
+    save();renderList();if(add)toast('공용 영상 '+add+'개를 가져왔어요');
+  }catch(e){}
+}
+renderList();syncShared();
 </script>
 </body>
 </html>
